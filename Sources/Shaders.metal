@@ -250,7 +250,7 @@ inline float letters2D(float2 p) {
 inline float mapXNU(float3 p, constant Uniforms& u) {
     float s = 1.0 + 0.04 * u.kick;
     float3 q = p / s;
-    q.xz = rot(q.xz, sin(u.time * 0.4) * 0.5);
+    q.xz = rot(q.xz, sin(u.time * 0.4) * 0.3);
     float d2 = letters2D(q.xy);
     float2 w = float2(d2, abs(q.z) - 0.3);
     float d = min(max(w.x, w.y), 0.0) + length(max(w, 0.0)) - 0.03;
@@ -295,7 +295,7 @@ float3 shadeXNU(float3 pos, float3 rd, float3 n, constant Uniforms& u) {
 
 float3 sceneXNU(float2 p, constant Uniforms& u) {
     float t = u.time;
-    float th = sin(t * 0.25) * 0.95;   // swing across the front only; from behind the letters read mirrored
+    float th = sin(t * 0.25) * 0.55;   // swing across the front only; from behind the letters read mirrored
     float3 ro = float3(sin(th) * 6.5, 1.0 + sin(t * 0.17) * 1.2, cos(th) * 6.5);
     float3 ta = float3(0, 0, 0);
     float3 fwd = normalize(ta - ro), right = normalize(cross(float3(0, 1, 0), fwd)), up = cross(fwd, right);
