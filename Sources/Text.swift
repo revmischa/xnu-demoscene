@@ -1,5 +1,6 @@
 import AppKit
 import Metal
+import simd
 
 /// A CPU-side glyph grid uploaded each frame as an RG8 texture: R = ASCII code, G = intensity.
 /// The scene shader samples the glyph atlas per cell; this is the "terminal" layer.
@@ -86,11 +87,11 @@ enum TextScenes {
         if u.scene != scene { scene = u.scene; rebuild(sys: sys, text: text) }
         switch u.scene {
         case 0: boot(text, sceneTime)
-        case 1: hud(text, sys, t)
+        case 1: hud(text, sys, t, u)
         case 2: rainFrame(text, sys, dt)
         case 3: text.put(text.rows - 2, 2, String(format: "uptime %.0fs  kern.osrelease %@  loadavg %.2f  mem %.0f%%", sys.uptime, sys.osRelease, sys.loadAvg * Float(sys.ncpu), sys.memPressure * 100), intensity: 0.45)
         case 4: panic(text, sceneTime, u)
-        case 5: text.putCentered(text.rows - 2, "Darwin \(sys.osRelease)  ·  \(xnuBuild(sys))  ·  \(sys.model)", intensity: 0.4)
+        case 5: text.putCentered(text.rows - 2, "Darwin \(sys.osRelease)   *   \(xnuBuild(sys))   *   \(sys.model)", intensity: 0.4)
         case 6: credits(text, &u, sceneTime, sys)
         default: break
         }
@@ -110,8 +111,8 @@ enum TextScenes {
         case 0: lines = bootLines(sys)
         case 2:
             rain = []
-            for c in stride(from: 1, to: text.cols - 1, by: 3) {
-                rain.append((c, -rand() * 60, 6 + rand() * 14, procLabel(sys)))
+            for c in stride(from: 1, to: text.cols - 1, by: 2) {
+                rain.append((c, -rand() * 30, 5 + rand() * 12, procLabel(sys)))
             }
         case 4: lines = panicLines(sys)
         default: lines = []
@@ -151,7 +152,7 @@ enum TextScenes {
         }
         l.append("host_processor_info: PROCESSOR_CPU_LOAD_INFO sampling @ 2 Hz")
         l.append("AVAudioEngine: AVAudioSourceNode attached, 128 BPM tracker online")
-        l.append("MTLDevice: \(MTLCreateSystemDefaultDevice()?.name ?? "GPU") — shaders compiled at runtime")
+        l.append("MTLDevice: \(MTLCreateSystemDefaultDevice()?.name ?? "GPU") -- shaders compiled at runtime")
         l.append("Timeline: 7 scenes, 100 bars, \(Int(demoLength)) s")
         l.append("")
         l.append("xnu-demo: all systems go. press ESC to panic.")
@@ -180,7 +181,7 @@ enum TextScenes {
 
     // --- scene 1: live HUD ----------------------------------------------------
 
-    static func hud(_ text: TextLayer, _ sys: SystemSnapshot, _ t: Double) {
+    static func hud(_ text: TextLayer, _ sys: SystemSnapshot, _ t: Double, _ u: Uniforms) {
         text.reset()
         let ramp = Array(" .:-=+*#%@")
         var bars = ""
@@ -188,7 +189,24 @@ enum TextScenes {
         text.put(text.rows - 4, 2, "host_processor_info  [\(bars)]  \(sys.ncpu) cpus", intensity: 0.6)
         text.put(text.rows - 3, 2, String(format: "mach_port_names %d   task_threads %d   procs %d   loadavg %.2f", sys.machPorts, sys.threadCount, sys.processes.count, sys.loadAvg * Float(sys.ncpu)), intensity: 0.6)
         text.put(text.rows - 2, 2, String(format: "mach_msg_trap  ipc_kmsg  %@  mem pressure %.0f%%", hex(mach_absolute_time()), sys.memPressure * 100), intensity: 0.5)
-        text.put(1, 2, "task_for_pid()  →  mach ports  →  messages", intensity: 0.5)
+        text.put(1, 2, "task_for_pid()  ->  mach_port_allocate()  ->  mach_msg()", intensity: 0.5)
+        // label each task sphere with a live process; mirrors taskPos() and the camera in scenePorts()
+        let ro = SIMD3<Double>(sin(t * 0.2) * 6.5, 1.6 + sin(t * 0.13) * 0.8, cos(t * 0.2) * 6.5)
+        let fwd = simd_normalize(-ro), right = simd_normalize(simd_cross(SIMD3(0, 1, 0), fwd)), up = simd_cross(fwd, right)
+        let aspect = Double(u.resolution.x / u.resolution.y)
+        for i in 0..<7 {
+            let fi = Double(i)
+            let pos = SIMD3<Double>(sin(t * 0.5 + fi * 2.1) * 1.7, cos(t * 0.37 + fi * 1.3) * 0.9, sin(t * 0.43 + fi * 0.7 + 1.0) * 1.7)
+            let d = pos - ro
+            let z = simd_dot(d, fwd)
+            if z < 0.1 { continue }
+            let px = simd_dot(d, right) / z * 1.6, py = simd_dot(d, up) / z * 1.6
+            let col = Int((px / aspect + 0.5) * Double(text.cols)) + 2, row = Int((0.5 - py) * Double(text.rows)) - 2
+            if !sys.processes.isEmpty {
+                let p = sys.processes[(i * 131) % sys.processes.count]
+                text.put(row, col, "\(p.name)[\(p.pid)]", intensity: 0.8)
+            }
+        }
     }
 
     // --- scene 2: process rain ------------------------------------------------
@@ -203,8 +221,9 @@ enum TextScenes {
             }
             let head = Int(rain[i].y)
             for (k, ch) in rain[i].text.utf8.enumerated() {
-                let row = head - k
-                let inten = k == 0 ? 1.0 : 0.75 * (1 - Double(k) / Double(n))
+                let row = head - (n - 1 - k)   // last char is the bright head; string reads top-down
+                let age = n - 1 - k
+                let inten = age == 0 ? 1.0 : 0.7 * (1 - Double(age) / Double(n))
                 text.put(row, rain[i].col, String(UnicodeScalar(ch)), intensity: Float(inten))
             }
         }
@@ -225,34 +244,25 @@ enum TextScenes {
         l.append("OS release type: User")
         l.append("OS version: \(sys.osVersion)")
         l.append("Kernel version: \(sys.kernVersion)")
-        l.append("Fileset Kernelcache UUID: \(uuid())")
         l.append("Kernel UUID: \(uuid())")
-        l.append("Boot session UUID: \(uuid())")
         l.append("iBoot version: iBoot-\(13000 + Int(rand() * 999)).\(Int(rand() * 9)).\(Int(rand() * 9))")
-        l.append("secure boot?: YES")
-        l.append("roots installed: 0")
-        l.append("Paniclog version: 14")
+        l.append("secure boot?: YES   roots installed: 0   Paniclog version: 14")
         l.append("Kernel slide:      \(hex(kslide))")
         l.append("Kernel text base:  \(hex(ktext))")
         l.append("mach_absolute_time: \(hex(mach_absolute_time()))")
-        l.append("Epoch Time:        sec       usec")
         let now = Date().timeIntervalSince1970
-        l.append(String(format: "  Boot    : 0x%08x 0x%08x", UInt32(now - sys.uptime), 0))
-        l.append(String(format: "  Calendar: 0x%08x 0x%08x", UInt32(now), UInt32((now - floor(now)) * 1e6)))
-        l.append("")
+        l.append(String(format: "Epoch Time:  Boot 0x%08x   Calendar 0x%08x.%06x", UInt32(now - sys.uptime), UInt32(now), UInt32((now - floor(now)) * 1e6)))
         l.append("Zone info:")
         l.append("  Zone map: 0xfffffe1000000000 - 0xfffffe3000000000")
-        l.append("  . VM    : 0xfffffe1000000000 - 0xfffffe1800000000")
-        l.append("  . RO    : 0xfffffe1800000000 - 0xfffffe1a00000000")
         l.append("  . GEN0  : 0xfffffe1a00000000 - 0xfffffe2000000000")
-        for c in 0..<min(sys.ncpu, 8) {
+        for c in 0..<min(sys.ncpu, 6) {
             let load = c < sys.cpuLoad.count ? Int(sys.cpuLoad[c] * 100) : 0
             l.append("CORE \(c): PC=\(hex(ktext + h64() % 0x80000)), LR=\(hex(ktext + h64() % 0x80000)), FP=\(hex(0xfffffe6f00000000 + h64() % 0x10000000))  load \(load)%")
         }
         l.append("Compressor Info: \(Int(sys.memPressure * 100))% of compressed pages limit (OK) and 0% of segments limit (OK) with 0 swapfiles and OK swap space")
         l.append("Panicked task \(hex(0xfffffe1a00000000 + h64() % 0x10000000)): \(Int(rand() * 9000) + 1000) pages, \(sys.threadCount) threads: pid \(getpid()): xnu-demo")
         l.append("Panicked thread: \(hex(0xfffffe1a00000000 + h64() % 0x10000000)), backtrace: \(hex(ktext + 0x2ad000)), tid: \(Int(rand() * 900000))")
-        for _ in 0..<10 {
+        for _ in 0..<7 {
             l.append("\t\t  lr: \(hex(ktext + h64() % 0x900000))  fp: \(hex(0xfffffe6f00000000 + h64() % 0x10000000))")
         }
         l.append("")
@@ -263,10 +273,7 @@ enum TextScenes {
         return l
     }
 
-    static func uuid() -> String {
-        let s = UUID().uuidString
-        return s
-    }
+    static func uuid() -> String { UUID().uuidString }
 
     static func panic(_ text: TextLayer, _ st: Double, _ u: Uniforms) {
         text.reset()
@@ -278,8 +285,10 @@ enum TextScenes {
             text.put(i - start, 1, line, intensity: 0.95, maxLen: text.cols - 2)
         }
         if st > 4 && Int(st * 3) % 2 == 0 {
-            text.putCentered(text.rows / 2, "  You need to restart your computer.  ", intensity: 1)
-            text.putCentered(text.rows / 2 + 1, "  Hold down the Power button until it turns off. ", intensity: 0.8)
+            let blank = String(repeating: " ", count: text.cols)
+            for r in -1...2 { text.put(text.rows / 2 + r, 0, blank) }
+            text.putCentered(text.rows / 2, "You need to restart your computer.", intensity: 1)
+            text.putCentered(text.rows / 2 + 1, "Hold down the Power button until it turns off.", intensity: 0.8)
         }
     }
 
@@ -292,10 +301,10 @@ enum TextScenes {
         let lines: [(Double, String, Float)] = [
             (0.5, "X N U - D E M O", 1),
             (1.5, "a macOS / Darwin demoscene production", 0.7),
-            (3.5, "code  ·  music  ·  shaders", 0.6),
+            (3.5, "code  *  music  *  shaders", 0.6),
             (4.5, "Claude Fable 5.1, per Mischa", 1),
-            (6.5, "rendered live on \(sys.model) · \(sys.ncpu) cores · \(sys.memSize / 1_073_741_824) GB", 0.6),
-            (7.5, "Darwin \(sys.osRelease) · \(xnuBuild(sys)) · \(sys.processes.count) processes", 0.6),
+            (6.5, "rendered live on \(sys.model)  *  \(sys.ncpu) cores  *  \(sys.memSize / 1_073_741_824) GB", 0.6),
+            (7.5, "Darwin \(sys.osRelease)  *  \(xnuBuild(sys))  *  \(sys.processes.count) processes", 0.6),
             (10, "thanks for watching", 0.8),
         ]
         for (i, l) in lines.enumerated() where st > l.0 {

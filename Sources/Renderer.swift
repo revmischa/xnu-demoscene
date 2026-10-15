@@ -140,7 +140,29 @@ final class Renderer: NSObject, MTKViewDelegate {
         pass(bloomA, blurPipeline, [bloomB], SIMD2<Float>(0, 1))
         encode(cmd.makeRenderCommandEncoder(descriptor: rpd)!, postPipeline, [sceneTex, bloomA], .zero)
         cmd.present(drawable)
+        if let shotPath, t > startAt + 1.5 { saveShot(cmd, drawable.texture, shotPath) } else { cmd.commit() }
+    }
+
+    private func saveShot(_ cmd: MTLCommandBuffer, _ src: MTLTexture, _ path: String) {
+        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: src.pixelFormat, width: src.width, height: src.height, mipmapped: false)
+        d.usage = .renderTarget
+        d.storageMode = .shared
+        let tex = device.makeTexture(descriptor: d)!
+        let rp = MTLRenderPassDescriptor()
+        rp.colorAttachments[0].texture = tex
+        rp.colorAttachments[0].loadAction = .dontCare
+        rp.colorAttachments[0].storeAction = .store
+        encode(cmd.makeRenderCommandEncoder(descriptor: rp)!, postPipeline, [sceneTex!, bloomA!], .zero)
         cmd.commit()
+        cmd.waitUntilCompleted()
+        var bytes = [UInt8](repeating: 0, count: src.width * src.height * 4)
+        tex.getBytes(&bytes, bytesPerRow: src.width * 4, from: MTLRegionMake2D(0, 0, src.width, src.height), mipmapLevel: 0)
+        for i in stride(from: 0, to: bytes.count, by: 4) { bytes.swapAt(i, i + 2); bytes[i + 3] = 255 } // bgra -> rgba
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: src.width, pixelsHigh: src.height, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: src.width * 4, bitsPerPixel: 32)!
+        bytes.withUnsafeBufferPointer { rep.bitmapData!.update(from: $0.baseAddress!, count: bytes.count) }
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+        fputs("saved \(path)\n", stderr)
+        exit(0)
     }
 
     private func encode(_ enc: MTLRenderCommandEncoder, _ pipe: MTLRenderPipelineState, _ textures: [MTLTexture], _ extra: SIMD2<Float>) {
@@ -201,6 +223,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         uniforms = u
 
         frames += 1
+        if fpsTime == 0 { fpsTime = t }
         if t - fpsTime > 5 { fputs("  \(frames / 5) fps, \(sys.processes.count) procs, load \(String(format: "%.2f", sys.loadAvg)), ports \(sys.machPorts)\n", stderr); frames = 0; fpsTime = t }
     }
 }

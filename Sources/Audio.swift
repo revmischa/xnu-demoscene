@@ -25,16 +25,23 @@ struct Trigger {
     nonisolated(unsafe) static var step = 0
 }
 
-/// Chamberlin state-variable filter, cheap and stable enough for synth voices.
+/// Trapezoidal (Zavalishin) state-variable filter. Stable at any cutoff, unlike the
+/// Chamberlin form, which blows up when cutoff is high and damping is low.
+/// `q` is the damping term k (= 1/Q): 2 is no resonance, 0.3 is screaming.
 struct SVF {
+    var ic1 = 0.0, ic2 = 0.0
     var low = 0.0, band = 0.0
     mutating func process(_ x: Double, cutoff: Double, q: Double, sr: Double) -> Double {
-        let f = min(2 * sin(Double.pi * min(cutoff, sr * 0.22) / sr), 0.99)
-        low += f * band
-        let high = x - low - q * band
-        band += f * high
-        low += f * band
-        return low
+        let g = tan(Double.pi * min(max(cutoff, 10), sr * 0.45) / sr)
+        let k = q
+        let a1 = 1 / (1 + g * (g + k)), a2 = g * a1, a3 = g * a2
+        let v3 = x - ic2
+        let v1 = a1 * ic1 + a2 * v3
+        let v2 = ic2 + a2 * ic1 + a3 * v3
+        ic1 = 2 * v1 - ic1
+        ic2 = 2 * v2 - ic2
+        low = v2; band = v1
+        return v2
     }
 }
 
@@ -296,7 +303,8 @@ final class Synth {
                 l = masterL.process(l, cutoff: c, q: 0.7, sr: sr)
                 r = masterR.process(r, cutoff: c, q: 0.7, sr: sr)
             }
-            let g = 0.75 * sec.fade
+            let g = 0.6 * sec.fade
+            if !l.isFinite || !r.isFinite { l = 0; r = 0 }   // insurance: a NaN would otherwise live in the delay line forever
             left[i] = Float(tanh(l * g))
             right[i] = Float(tanh(r * g))
             sample += 1
@@ -315,6 +323,7 @@ final class Audio {
         let sr = out.outputFormat(forBus: 0).sampleRate
         let format = AVAudioFormat(standardFormatWithSampleRate: sr, channels: 2)!
         synth = Synth(sampleRate: sr)
+        synth.sample = Int(startAt * sr)
         let synth = self.synth!
         source = AVAudioSourceNode(format: format) { _, _, frameCount, audioBufferList -> OSStatus in
             DemoClock.markStartIfNeeded()
@@ -330,4 +339,18 @@ final class Audio {
         engine.mainMixerNode.outputVolume = 1
         do { try engine.start() } catch { fputs("audio engine failed: \(error)\n", stderr) }
     }
+}
+
+func renderAudioFile(to path: String) {
+    let sr = 48000.0
+    let synth = Synth(sampleRate: sr)
+    let format = AVAudioFormat(standardFormatWithSampleRate: sr, channels: 2)!
+    let frames = Int(demoLength * sr)
+    let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames))!
+    synth.render(frames: frames, left: buf.floatChannelData![0], right: buf.floatChannelData![1])
+    buf.frameLength = AVAudioFrameCount(frames)
+    do {
+        let file = try AVAudioFile(forWriting: URL(fileURLWithPath: path), settings: format.settings)
+        try file.write(from: buf)
+    } catch { fputs("render failed: \(error)\n", stderr); exit(1) }
 }

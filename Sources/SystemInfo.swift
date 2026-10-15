@@ -199,7 +199,7 @@ enum DemoClock {
         return Double(mach_absolute_time() &- s) * timebase
     }
     static func markStartIfNeeded() {
-        if startHost == 0 { startHost = mach_absolute_time() }
+        if startHost == 0 { startHost = mach_absolute_time() &- UInt64(startAt / timebase) }
     }
     static func beat(at t: Double) -> Double { t * bpm / 60 }
 }

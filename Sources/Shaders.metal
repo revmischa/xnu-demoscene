@@ -70,7 +70,7 @@ float3 sceneBoot(float2 p, float2 uv, constant Uniforms& u) {
     if (p.y < horizon) {
         float z = 1.0 / (horizon - p.y);
         float2 g = float2(p.x * z, z + t * 1.5);
-        float lines = smoothstep(0.05, 0.0, abs(fract(g.x * 1.5) - 0.5) - 0.47) + smoothstep(0.05, 0.0, abs(fract(g.y * 0.5) - 0.5) - 0.47);
+        float lines = smoothstep(0.46, 0.5, abs(fract(g.x * 1.5) - 0.5)) + smoothstep(0.46, 0.5, abs(fract(g.y * 0.5) - 0.5));
         float fade = exp(-z * 0.08) * u.sceneProgress;
         col += lines * fade * float3(0.1, 0.5, 0.4) * (0.5 + 0.5 * u.kick);
     }
@@ -112,12 +112,15 @@ inline float3 normPorts(float3 p, constant Uniforms& u) {
 
 float3 scenePorts(float2 p, constant Uniforms& u) {
     float t = u.time;
-    float3 ro = float3(sin(t * 0.2) * 4.5, 1.3 + sin(t * 0.13) * 0.5, cos(t * 0.2) * 4.5);
+    float3 ro = float3(sin(t * 0.2) * 6.5, 1.6 + sin(t * 0.13) * 0.8, cos(t * 0.2) * 6.5);
     float3 fwd = normalize(-ro), right = normalize(cross(float3(0, 1, 0), fwd)), up = cross(fwd, right);
     float focal = 1.6;
     float3 rd = normalize(fwd * focal + right * p.x + up * p.y);
 
     float3 col = float3(0.01, 0.015, 0.03) + float3(0.02, 0.04, 0.08) * pow(max(0.0, rd.y), 0.5);
+    float2 sp = rd.xz / (abs(rd.y) + 0.2) * 3.0;
+    float st = hash21(floor(sp * 14.0 + t * 0.1));
+    col += float3(0.15, 0.25, 0.4) * smoothstep(0.992, 1.0, st) * (0.5 + 0.5 * sin(t * 3 + st * 100));
     float td = 0, id = 0; bool hit = false;
     for (int i = 0; i < 90; i++) {
         float3 pos = ro + rd * td;
@@ -172,10 +175,12 @@ float3 scenePlasma(float2 p, constant Uniforms& u) {
     float2 c = q + float2(sin(t * 0.5), cos(t * 0.3)) * 2;
     v += sin(length(c) * 1.5 - t * 2.0);
     v += sin(length(q - float2(cos(t * 0.4), sin(t * 0.6)) * 3) * 2.0 + t);
-    float3 col = pal(v * 0.15 + t * 0.05) * 0.5;
-    col *= 0.35 + 0.35 * u.bass;
-    col += float3(0.0, 0.2, 0.08) * smoothstep(0.9, 1.0, sin(v * 3 + t * 4)) * u.kick;
-    return col * 0.55;
+    float3 col = pal(v * 0.18 + t * 0.05);
+    float bands = pow(0.5 + 0.5 * sin(v * 2.5 + t * 2.0), 3.0);
+    col = col * col * (0.15 + 0.85 * bands);
+    col *= 0.45 + 0.45 * u.bass;
+    col += float3(0.0, 0.25, 0.1) * smoothstep(0.95, 1.0, sin(v * 3 + t * 4)) * u.kick;
+    return col * 0.7;
 }
 
 // ---------------------------------------------------------------- scene 3: tunnel
@@ -190,16 +195,19 @@ float3 sceneTunnel(float2 p, constant Uniforms& u) {
     float r = mix(rc, rs, shape);
     float a = atan2(q.y, q.x);
     float speed = 2.5 + u.loadAvg * 3.0;
-    float2 tuv = float2(a / PI * 4.0 + t * 0.2, 1.0 / r + t * speed);
-    float stripes = smoothstep(0.4, 0.6, sin(tuv.y * 2.0)) * 0.6 + 0.4;
-    float checker = step(0.5, fract(tuv.x * 0.5)) == step(0.5, fract(tuv.y * 0.25)) ? 1.0 : 0.6;
-    float n = fbm(tuv * float2(1.0, 0.5) + t * 0.1);
-    float3 col = palCold(tuv.y * 0.03 + a * 0.2 + t * 0.1) * stripes * checker * (0.5 + n);
+    float2 tuv = float2(a / PI * 8.0 + t * 0.3, 2.0 / r + t * speed);
+    float2 cell = fract(tuv) - 0.5;
+    float grid = smoothstep(0.42, 0.5, max(abs(cell.x), abs(cell.y)));
+    float checker = step(0.5, fract(tuv.x * 0.5)) == step(0.5, fract(tuv.y * 0.5)) ? 1.0 : 0.3;
+    float n = fbm(float2(cos(a) * 2.0 + t * 0.1, sin(a) * 2.0 + tuv.y * 0.3));   // periodic in a: no seam
+    float3 base = palCold(tuv.y * 0.02 + a / (2 * PI) + t * 0.1);
+    float3 col = base * base * checker * (0.25 + 0.6 * n) * 0.35;
+    col += base * grid * (0.25 + 0.35 * u.kick);
     // packets: bright rings flying inward on hats
-    float ring = smoothstep(0.08, 0.0, abs(fract(tuv.y * 0.125) - fract(u.beat * 0.5)));
-    col += float3(1.0, 0.9, 0.6) * ring * u.hat * 0.8;
-    col *= smoothstep(0.0, 0.25, r) * (0.6 + 0.4 * u.kick);
-    col *= exp(-0.6 / max(r, 0.01)) * 2.0;
+    float ring = smoothstep(0.12, 0.0, abs(fract(tuv.y * 0.0625) - fract(u.beat * 0.5)));
+    col += float3(1.0, 0.9, 0.6) * ring * u.hat;
+    col *= smoothstep(0.0, 0.3, r);
+    col *= (1 - exp(-r * 3.5));
     return col;
 }
 
@@ -309,7 +317,7 @@ float3 sceneXNU(float2 p, constant Uniforms& u) {
     } else if (tFloor < 1e8) {
         float3 fp = ro + rd * tFloor;
         float2 g = fp.xz;
-        float gl = smoothstep(0.06, 0.0, abs(fract(g.x) - 0.5) - 0.46) + smoothstep(0.06, 0.0, abs(fract(g.y) - 0.5) - 0.46);
+        float gl = smoothstep(0.45, 0.5, abs(fract(g.x) - 0.5)) + smoothstep(0.45, 0.5, abs(fract(g.y) - 0.5));
         float3 fcol = float3(0.02, 0.01, 0.04) + pal(u.beat * 0.05 + length(g) * 0.05) * gl * 0.5 * (0.4 + 0.6 * u.kick);
         // reflection of the letters in the floor
         float3 rr = reflect(rd, float3(0, 1, 0));
@@ -334,10 +342,10 @@ float3 sceneXNU(float2 p, constant Uniforms& u) {
 float3 sceneCredits(float2 p, float2 uv, constant Uniforms& u) {
     float t = u.time;
     float3 col = sceneBoot(p, uv, u) * 0.6;
-    float2 q = rot(p, t * 0.1) * (2.0 + sin(t * 0.2));
-    q += float2(t * 0.2, 0);
+    float2 q = rot(p, t * 0.1) * (7.0 + 3.0 * sin(t * 0.2));
+    q += float2(t * 0.6, t * 0.2);
     float ch = step(0.5, fract(q.x)) == step(0.5, fract(q.y)) ? 1.0 : 0.0;
-    col += pal(t * 0.05 + length(p)) * ch * 0.05 * (1 - smoothstep(0.0, 1.2, length(p)));
+    col += pal(t * 0.05 + length(p)) * ch * 0.035 * (1 - smoothstep(0.0, 1.2, length(p)));
     return col;
 }
 
@@ -374,7 +382,7 @@ float4 textOverlay(float2 uv, constant Uniforms& u, texture2d<float> atlas, text
     switch (u.scene) {
         case 0: color = float3(0.7, 1.0, 0.8); break;
         case 1: color = float3(0.5, 0.9, 1.0); break;
-        case 2: color = inten > 0.95 ? float3(0.85, 1.0, 0.9) : float3(0.25, 1.0, 0.4); break;
+        case 2: color = inten > 0.95 ? float3(1.0, 1.0, 1.0) : float3(0.6, 1.0, 0.7); break;
         case 3: color = float3(1.0, 0.7, 0.3); break;
         case 4: color = float3(0.92, 0.93, 0.97); break;
         case 5: color = float3(0.8, 0.8, 0.9); break;
