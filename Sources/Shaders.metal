@@ -113,7 +113,7 @@ inline float3 normPorts(float3 p, constant Uniforms& u) {
 float3 scenePorts(float2 p, constant Uniforms& u) {
     float t = u.time;
     float3 ro = float3(sin(t * 0.2) * 6.5, 1.6 + sin(t * 0.13) * 0.8, cos(t * 0.2) * 6.5);
-    float3 fwd = normalize(-ro), right = normalize(cross(float3(0, 1, 0), fwd)), up = cross(fwd, right);
+    float3 fwd = normalize(-ro), right = normalize(cross(fwd, float3(0, 1, 0))), up = cross(right, fwd);
     float focal = 1.6;
     float3 rd = normalize(fwd * focal + right * p.x + up * p.y);
 
@@ -298,7 +298,7 @@ float3 sceneXNU(float2 p, constant Uniforms& u) {
     float th = sin(t * 0.25) * 0.55;   // swing across the front only; from behind the letters read mirrored
     float3 ro = float3(sin(th) * 6.5, 1.0 + sin(t * 0.17) * 1.2, cos(th) * 6.5);
     float3 ta = float3(0, 0, 0);
-    float3 fwd = normalize(ta - ro), right = normalize(cross(float3(0, 1, 0), fwd)), up = cross(fwd, right);
+    float3 fwd = normalize(ta - ro), right = normalize(cross(fwd, float3(0, 1, 0))), up = cross(right, fwd);
     float3 rd = normalize(fwd * 1.7 + right * p.x + up * p.y);
     float floorY = -1.4;
 

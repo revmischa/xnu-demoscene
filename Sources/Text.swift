@@ -192,7 +192,7 @@ enum TextScenes {
         text.put(1, 2, "task_for_pid()  ->  mach_port_allocate()  ->  mach_msg()", intensity: 0.5)
         // label each task sphere with a live process; mirrors taskPos() and the camera in scenePorts()
         let ro = SIMD3<Double>(sin(t * 0.2) * 6.5, 1.6 + sin(t * 0.13) * 0.8, cos(t * 0.2) * 6.5)
-        let fwd = simd_normalize(-ro), right = simd_normalize(simd_cross(SIMD3(0, 1, 0), fwd)), up = simd_cross(fwd, right)
+        let fwd = simd_normalize(-ro), right = simd_normalize(simd_cross(fwd, SIMD3(0, 1, 0))), up = simd_cross(right, fwd)
         let aspect = Double(u.resolution.x / u.resolution.y)
         for i in 0..<7 {
             let fi = Double(i)
