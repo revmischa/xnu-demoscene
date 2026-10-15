@@ -29,7 +29,10 @@ run: $(BIN)
 windowed: $(BIN)
 	./$(BIN) --windowed
 
+check: $(BIN)
+	./$(BIN) --render-audio /tmp/xnu-demo-check.wav && rm -f /tmp/xnu-demo-check.wav
+
 clean:
 	rm -rf $(BUILD) $(BIN)
 
-.PHONY: all run windowed clean
+.PHONY: all run windowed check clean

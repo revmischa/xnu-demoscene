@@ -347,8 +347,25 @@ func renderAudioFile(to path: String) {
     let format = AVAudioFormat(standardFormatWithSampleRate: sr, channels: 2)!
     let frames = Int(demoLength * sr)
     let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames))!
-    synth.render(frames: frames, left: buf.floatChannelData![0], right: buf.floatChannelData![1])
+    let l = buf.floatChannelData![0], r = buf.floatChannelData![1]
+    synth.render(frames: frames, left: l, right: r)
     buf.frameLength = AVAudioFrameCount(frames)
+    // Self-check: finite everywhere, audible in every 16-bar block except the fade-out.
+    let block = Int(sr * 60 / DemoClock.bpm * 64)
+    var ok = true
+    for b in stride(from: 0, to: frames, by: block) {
+        var sum = 0.0, peak = 0.0
+        for i in b..<min(b + block, frames) {
+            let v = Double(l[i]), w = Double(r[i])
+            if !v.isFinite || !w.isFinite { ok = false }
+            sum += v * v + w * w; peak = max(peak, abs(v), abs(w))
+        }
+        let rms = 20 * log10(sqrt(sum / Double(2 * block)) + 1e-9)
+        let silent = rms < -40 && b / block < 6
+        if silent { ok = false }
+        fputs(String(format: "bars %3d-%3d  rms %6.1f dB  peak %.2f%@\n", b / block * 16, b / block * 16 + 16, rms, peak, silent ? "  SILENT" : ""), stderr)
+    }
+    if !ok { fputs("audio self-check FAILED\n", stderr); exit(1) }
     do {
         let file = try AVAudioFile(forWriting: URL(fileURLWithPath: path), settings: format.settings)
         try file.write(from: buf)
