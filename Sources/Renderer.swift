@@ -27,6 +27,7 @@ struct Uniforms {
     var rows: Int32 = 0
     var ncpu: Int32 = 1
     var scrollRow: Int32 = -1
+    var grain: Float = 1   // film grain; 0 for offline video, where random noise wrecks the encoder
 }
 
 /// Scene timeline in bars (128 BPM, 1.875 s/bar). The shader switches on `scene`.
@@ -229,6 +230,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         u.scrollRow = -1
         u.scrollFrac = 0
         u.textAlpha = 1
+        u.grain = DemoClock.override == nil ? 1 : 0
         TextScenes.update(text: text, u: &u, sys: sys, t: t, sceneTime: sceneTime)
         uniforms = u
 

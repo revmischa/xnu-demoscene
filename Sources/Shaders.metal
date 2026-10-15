@@ -10,6 +10,7 @@ struct Uniforms {
     float memPressure, loadAvg, procCount, uptime;
     float transition, textAlpha, scrollFrac;
     int scene, cols, rows, ncpu, scrollRow;
+    float grain;
 };
 
 struct VOut { float4 pos [[position]]; float2 uv; };
@@ -461,7 +462,7 @@ fragment float4 postFragment(VOut in [[stage_in]], constant Uniforms& u [[buffer
     float scan = 0.9 + 0.1 * sin(uv.y * u.resolution.y * PI);
     col *= scan;
     col *= 1 - 0.4 * pow(length(q) * 0.75, 3.0);
-    col += (hash21(in.uv * 1000 + fract(u.time * 10) * 100) - 0.5) * 0.025;
+    col += (hash21(in.uv * 1000 + fract(u.time * 10) * 100) - 0.5) * 0.025 * u.grain;
     col = 1 - exp(-col * 1.3);
     col = pow(max(col, 0.0), 1 / 2.2);
     col *= u.transition;
