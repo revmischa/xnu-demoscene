@@ -200,7 +200,7 @@ float3 sceneTunnel(float2 p, constant Uniforms& u) {
     float grid = smoothstep(0.42, 0.5, max(abs(cell.x), abs(cell.y)));
     float checker = step(0.5, fract(tuv.x * 0.5)) == step(0.5, fract(tuv.y * 0.5)) ? 1.0 : 0.3;
     float n = fbm(float2(cos(a) * 2.0 + t * 0.1, sin(a) * 2.0 + tuv.y * 0.3));   // periodic in a: no seam
-    float3 base = palCold(tuv.y * 0.02 + a / (2 * PI) + t * 0.1);
+    float3 base = palCold(tuv.y * 0.02 + a / PI + t * 0.1);   // a/PI: period-2 blue channel stays seamless
     float3 col = base * base * checker * (0.25 + 0.6 * n) * 0.35;
     col += base * grid * (0.25 + 0.35 * u.kick);
     // packets: bright rings flying inward on hats
