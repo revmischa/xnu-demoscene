@@ -20,6 +20,7 @@ into the visuals, so it is a little different on every machine.
 ```sh
 make          # builds ./xnu-demo
 make run      # fullscreen on the main display
+make check    # renders the soundtrack offline and asserts it is finite and audible
 ```
 
 Dev flags:
