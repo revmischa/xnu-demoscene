@@ -32,7 +32,10 @@ windowed: $(BIN)
 check: $(BIN)
 	./$(BIN) --render-audio /tmp/xnu-demo-check.wav && rm -f /tmp/xnu-demo-check.wav
 
+video: $(BIN)
+	./$(BIN) --render-video xnu-demo.mov --size 3840x2160 --fps 120
+
 clean:
 	rm -rf $(BUILD) $(BIN)
 
-.PHONY: all run windowed check clean
+.PHONY: all run windowed check video clean

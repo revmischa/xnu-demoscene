@@ -188,12 +188,14 @@ final class SystemInfo {
 enum DemoClock {
     static let bpm = 128.0
     nonisolated(unsafe) static var startHost: UInt64 = 0
+    nonisolated(unsafe) static var override: Double? = nil   // offline rendering drives the clock by hand
     static let timebase: Double = {
         var tb = mach_timebase_info()
         mach_timebase_info(&tb)
         return Double(tb.numer) / Double(tb.denom) / 1e9
     }()
     static func now() -> Double {
+        if let override { return override }
         let s = startHost
         if s == 0 { return 0 }
         return Double(mach_absolute_time() &- s) * timebase

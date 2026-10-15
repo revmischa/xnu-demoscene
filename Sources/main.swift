@@ -62,6 +62,15 @@ if let i = CommandLine.arguments.firstIndex(of: "--render-audio"), i + 1 < Comma
     exit(0)
 }
 
+/// `--render-video out.mov [--size 3840x2160] [--fps 120] [--seconds N]` renders offline and exits.
+if let i = CommandLine.arguments.firstIndex(of: "--render-video"), i + 1 < CommandLine.arguments.count {
+    let a = CommandLine.arguments
+    func opt(_ name: String) -> String? { a.firstIndex(of: name).flatMap { $0 + 1 < a.count ? a[$0 + 1] : nil } }
+    let size = (opt("--size") ?? "3840x2160").split(separator: "x").compactMap { Int($0) }
+    renderVideo(to: a[i + 1], width: size[0], height: size[1], fps: Int(opt("--fps") ?? "120") ?? 120, seconds: opt("--seconds").flatMap(Double.init))
+    exit(0)
+}
+
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)
 let delegate = AppDelegate()

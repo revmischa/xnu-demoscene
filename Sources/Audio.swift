@@ -66,8 +66,9 @@ final class Synth {
     var hatT = 1e9, hatOpen = false
     var noiseHP = 0.0
 
-    // bass
-    var bassT = 1e9, bassPhase = 0.0, bassFreq = 55.0, bassAccent = 0.0, bassFilter = SVF()
+    // bass: sub sine + growl layer through a wobbling resonant lowpass, sidechained to the kick
+    var bassT = 1e9, bassRelT = 1e9, bassPhase = 0.0, subPhase = 0.0, bassFreq = 55.0, bassTarget = 55.0, bassAccent = 0.0
+    var bassFilter = SVF(), bassFilter2 = SVF()
     // lead
     var leadT = 1e9, leadRelT = 1e9, leadPhase1 = 0.0, leadPhase2 = 0.0, leadFreq = 440.0, leadTarget = 440.0, leadFilter = SVF()
     var leadGate = false
@@ -101,6 +102,10 @@ final class Synth {
     // Chord progression in A minor: Am | F | C | G, two bars each. MIDI numbers.
     static let chords: [[Double]] = [[57, 60, 64], [53, 57, 60], [60, 64, 67], [55, 59, 62]]
     static let bassLine: [Int] = [0, -1, 0, 12, -1, 0, -1, 0, 0, -1, 12, 0, -1, 0, -1, 12] // -1 rest
+    // Wobble sections hold long notes and let the filter LFO do the talking. -2 = note off.
+    static let wobbleLine: [Int] = [0, -1, -1, -1, -1, -1, -2, 0, -1, -1, -2, 3, -1, -2, -5, -1]
+    // Wobble rate in cycles per beat, per bar: 1/4, 1/8, 1/16, triplets, ...
+    static let wobbleRates: [Double] = [1, 2, 4, 3, 2, 8, 4, 1.5]
     // Lead: 4-bar phrase, 16th steps. 0 = hold, -1 = rest.
     static let leadA: [Double] = [
         69, 0, 72, 0, 76, 0, 72, 74, 0, 72, 0, 69, 0, 0, -1, -1,
@@ -118,6 +123,7 @@ final class Synth {
     struct Section {
         var pad = true, arp = false, kick = false, hat = false, snare = false
         var bass = false, lead: [Double]? = nil, riser = false, openHat = false
+        var wobble = false, halfTime = false   // dubstep-style drop: LFO on the bass filter, snare on 3 only
         var sweep = 1.0, fade = 1.0
     }
 
@@ -128,9 +134,9 @@ final class Synth {
         case 8..<16: s.arp = true; s.kick = true; s.hat = true
         case 16..<32: s.arp = true; s.kick = true; s.hat = true; s.snare = true; s.bass = true
         case 32..<48: s.kick = true; s.hat = true; s.snare = true; s.bass = true; s.lead = leadA; s.arp = bar >= 40
-        case 48..<64: s.kick = true; s.hat = true; s.snare = true; s.bass = true; s.lead = leadA; s.arp = true; s.openHat = true
+        case 48..<64: s.kick = true; s.hat = true; s.snare = true; s.bass = true; s.lead = leadA; s.arp = true; s.openHat = true; s.wobble = bar >= 56
         case 64..<72: s.riser = true; s.kick = bar < 68; s.sweep = 0.08 + Double(bar - 64) / 8 * 0.5
-        case 72..<88: s.kick = true; s.hat = true; s.snare = true; s.bass = true; s.lead = leadB; s.arp = true; s.openHat = bar >= 80
+        case 72..<88: s.kick = true; s.hat = true; s.snare = true; s.bass = true; s.lead = bar >= 80 ? leadB : nil; s.arp = bar >= 80; s.wobble = true; s.halfTime = true; s.openHat = bar >= 80
         case 88..<100:
             s.arp = true; s.kick = bar < 92; s.hat = bar < 92; s.bass = bar < 92
             s.fade = bar < 96 ? 1 : 1 - Double(bar - 96) / 4
@@ -151,22 +157,26 @@ final class Synth {
         if bar >= totalBars { return }
         padNotes = chord
 
-        if sec.kick && (s16 % 4 == 0 || (s16 == 14 && bar % 4 == 3)) {
+        let kickHit = sec.halfTime ? (s16 == 0 || s16 == 6 || s16 == 10 || (s16 == 14 && bar % 2 == 1)) : (s16 % 4 == 0 || (s16 == 14 && bar % 4 == 3))
+        if sec.kick && kickHit {
             kickT = 0; kickPhase = 0; Trigger.kick = t
         }
-        if sec.snare && (s16 == 4 || s16 == 12) {
+        if sec.snare && (sec.halfTime ? s16 == 8 : (s16 == 4 || s16 == 12)) {
             snareT = 0; snarePhase = 0; Trigger.snare = t
         }
         if sec.hat && s16 % 2 == 0 {
             hatT = 0; hatOpen = sec.openHat && s16 % 4 == 2; Trigger.hat = t
         }
         if sec.bass {
-            let n = Synth.bassLine[s16]
-            if n >= 0 {
-                bassT = 0; bassFreq = midiHz(chord[0] - 24 + Double(n)); bassAccent = s16 % 8 == 0 ? 1 : 0.5
+            let n = (sec.wobble ? Synth.wobbleLine : Synth.bassLine)[s16]
+            if n >= -1 && n != -1 {
+                let legato = sec.wobble && bassT < 1e8 && bassRelT > 1e8
+                bassTarget = midiHz(chord[0] - 24 + Double(n))
+                if !legato { bassFreq = bassTarget; bassPhase = 0; subPhase = 0 }
+                bassT = 0; bassRelT = 1e9; bassAccent = s16 % 8 == 0 ? 1 : 0.6
                 Trigger.bass = t
-            }
-        }
+            } else if n == -2 && bassT < 1e8 { bassRelT = 0 }
+        } else if bassT < 1e8 && bassRelT > 1e8 { bassRelT = 0 }
         if let lead = sec.lead {
             let n = lead[step % 64]
             if n > 0 {
@@ -207,11 +217,14 @@ final class Synth {
             var dry = 0.0, send = 0.0, sideL = 0.0, sideR = 0.0
 
             // kick: sine with fast pitch sweep
-            if kickT < 0.6 {
-                let f = 48 + 140 * exp(-kickT * 28)
+            var duck = 1.0
+            if kickT < 0.7 {
+                let f = 42 + 150 * exp(-kickT * 24)
                 kickPhase += f * dt
-                let env = exp(-kickT * 7) * min(kickT * 1500, 1)
-                dry += sin(kickPhase * 2 * .pi) * env * 1.1 + hp * exp(-kickT * 400) * 0.6
+                let env = exp(-kickT * 5.5) * min(kickT * 1500, 1)
+                let body = sin(kickPhase * 2 * .pi)
+                dry += tanh(body * 1.6) * env * 1.0 + hp * exp(-kickT * 300) * 0.7
+                duck = 1 - 0.85 * exp(-kickT * 14)   // sidechain: bass and pad pump on every kick
                 kickT += dt
             }
             // snare: noise burst + body
@@ -228,14 +241,33 @@ final class Synth {
                 sideL += h; sideR -= h * 0.6
                 hatT += dt
             }
-            // bass: two detuned saws through a resonant lowpass with envelope
-            if bassT < 1.0 {
-                bassPhase += bassFreq * dt
-                let x = saw(bassPhase) * 0.6 + saw(bassPhase * 1.004 + 0.3) * 0.4 + pulse(bassPhase * 0.5, 0.5) * 0.3
-                let env = exp(-bassT * 5) * min(bassT * 800, 1)
-                let cutoff = 120 + 2600 * bassAccent * exp(-bassT * 9)
-                dry += bassFilter.process(x, cutoff: cutoff, q: 0.45, sr: sr) * env * 0.85
+            // bass: sub sine + distorted saw stack through a wobbling resonant lowpass
+            if bassT < 1e8 {
+                bassFreq += (bassTarget - bassFreq) * 0.003
+                let f = bassFreq
+                subPhase += f * dt
+                bassPhase += f * 2 * dt
+                let sub = sin(subPhase * 2 * .pi)
+                let stack = saw(bassPhase) + saw(bassPhase * 1.011 + 0.2) * 0.8 + saw(bassPhase * 0.5 * 0.994) * 0.6 + pulse(bassPhase * 2, 0.3) * 0.4
+                let att = min(bassT * 600, 1)
+                let rel = bassRelT < 1e8 ? exp(-bassRelT * 14) : 1
+                let cutoff: Double
+                if sec.wobble {
+                    let rate = Synth.wobbleRates[bar % 8]
+                    let beatPos = Double(sample) / samplesPerStep / 4
+                    let lfo = 0.5 - 0.5 * cos(2 * .pi * beatPos * rate)
+                    cutoff = 90 + 3200 * lfo * lfo
+                } else {
+                    cutoff = 110 + 2800 * bassAccent * exp(-bassT * 8)
+                }
+                let growl = bassFilter.process(tanh(stack * 2.2), cutoff: cutoff, q: 0.35, sr: sr)
+                let growl2 = bassFilter2.process(growl, cutoff: cutoff * 1.5 + 200, q: 1.2, sr: sr)
+                let subEnv = sec.wobble ? 1.0 : exp(-bassT * 2.5)
+                let env = att * rel * duck
+                let y = sub * subEnv * 1.0 + tanh(growl2 * 2.0) * 0.55
+                dry += y * env * (sec.wobble ? 1.0 : 0.85)
                 bassT += dt
+                if bassRelT < 1e8 { bassRelT += dt; if bassRelT > 0.6 { bassT = 1e9; bassRelT = 1e9 } }
             }
             // lead: glide, vibrato, PWM + saw, delay send
             if leadT < 1e8 {
@@ -266,8 +298,8 @@ final class Synth {
                 }
                 let tt = Double(sample) * dt
                 let cutoff = 500 + 420 * sin(tt * 0.37) + 300 * sin(tt * 0.11)
-                sideL += padFilterL.process(pl, cutoff: cutoff, q: 0.6, sr: sr) * padEnv * 0.08
-                sideR += padFilterR.process(pr, cutoff: cutoff * 1.1, q: 0.6, sr: sr) * padEnv * 0.08
+                sideL += padFilterL.process(pl, cutoff: cutoff, q: 0.6, sr: sr) * padEnv * 0.08 * duck
+                sideR += padFilterR.process(pr, cutoff: cutoff * 1.1, q: 0.6, sr: sr) * padEnv * 0.08 * duck
             }
             // arp: plucky triangle, mostly wet
             if arpT < 0.5 {
@@ -303,7 +335,7 @@ final class Synth {
                 l = masterL.process(l, cutoff: c, q: 0.7, sr: sr)
                 r = masterR.process(r, cutoff: c, q: 0.7, sr: sr)
             }
-            let g = 0.6 * sec.fade
+            let g = 0.55 * sec.fade
             if !l.isFinite || !r.isFinite { l = 0; r = 0 }   // insurance: a NaN would otherwise live in the delay line forever
             left[i] = Float(tanh(l * g))
             right[i] = Float(tanh(r * g))

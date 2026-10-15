@@ -4,3 +4,5 @@ xnu-demo
 *.metallib
 *.air
 .DS_Store
+*.mov
+*.wav

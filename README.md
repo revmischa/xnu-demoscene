@@ -21,6 +21,7 @@ into the visuals, so it is a little different on every machine.
 make          # builds ./xnu-demo
 make run      # fullscreen on the main display
 make check    # renders the soundtrack offline and asserts it is finite and audible
+make video    # offline render of the whole demo to xnu-demo.mov (HEVC 4K @ 120 fps, AAC)
 ```
 
 Dev flags:
@@ -30,6 +31,7 @@ Dev flags:
 ./xnu-demo --windowed --at 72         # start the demo clock and sequencer at 72 s
 ./xnu-demo --windowed --at 72 --shot f.png   # save a frame 1.5 s later and quit
 ./xnu-demo --render-audio track.wav   # render the soundtrack offline (no window)
+./xnu-demo --render-video out.mov --size 1920x1080 --fps 60 --seconds 20   # offline video
 ```
 
 ## Controls
@@ -64,8 +66,10 @@ All synthesized in the render block, sample by sample:
 
 - **Kick** sine with a fast pitch sweep plus a noise click. **Snare** noise burst plus
   a 190 Hz body. **Hats** high-passed noise, closed and open.
-- **Bass** two detuned saws plus a sub pulse through a resonant lowpass with an
-  envelope on cutoff (acid-ish), notes from a 16-step pattern relative to the chord.
+- **Bass** a sub sine plus a distorted three-saw stack through two resonant lowpasses.
+  Acid-style cutoff envelope in the early sections; from bar 56 a tempo-synced LFO
+  wobbles the cutoff (rate changes every bar: 1/4, 1/8, 1/16, triplets...). Sidechained
+  to the kick, as is the pad. The finale drops to half-time (snare on 3).
 - **Lead** PWM pulse plus saw with glide and vibrato, two 4-bar phrases (A and B).
 - **Pad** three-note chord, two detuned saws per note, slow filter LFO.
 - **Arp** plucked triangle cycling chord tones, mostly wet.

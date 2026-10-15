@@ -61,8 +61,17 @@ final class Renderer: NSObject, MTKViewDelegate {
     var frames = 0
     var fpsTime = 0.0
 
-    init(view: MTKView) {
-        device = view.device!
+    convenience init(view: MTKView) {
+        self.init(device: view.device!, colorFormat: view.colorPixelFormat)
+        view.delegate = self
+        view.preferredFramesPerSecond = 120
+        view.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+        view.framebufferOnly = true
+        mtkView(view, drawableSizeWillChange: view.drawableSize)
+    }
+
+    init(device: MTLDevice, colorFormat: MTLPixelFormat) {
+        self.device = device
         queue = device.makeCommandQueue()!
         text = TextLayer(cols: 128, rows: 40)
         atlas = GlyphAtlas.make(device: device)
@@ -91,18 +100,15 @@ final class Renderer: NSObject, MTKViewDelegate {
         scenePipeline = pipeline("sceneFragment", .rgba16Float)
         brightPipeline = pipeline("brightFragment", .rgba16Float)
         blurPipeline = pipeline("blurFragment", .rgba16Float)
-        postPipeline = pipeline("postFragment", view.colorPixelFormat)
-
-        view.delegate = self
-        view.preferredFramesPerSecond = 120
-        view.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
-        view.framebufferOnly = true
-        mtkView(view, drawableSizeWillChange: view.drawableSize)
+        postPipeline = pipeline("postFragment", colorFormat)
     }
 
-    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
-        // Internal render resolution capped at ~1080p; the post pass upscales. Raymarching 4K is a waste.
-        let scale = min(1, 1080 / max(size.height, 1))
+    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) { resize(size, cap: true) }
+
+    /// Internal render resolution is capped at ~1080p in real time (the post pass upscales;
+    /// raymarching 4K at 120 Hz is a waste). Offline video renders at full size.
+    func resize(_ size: CGSize, cap: Bool) {
+        let scale = cap ? min(1, 1080 / max(size.height, 1)) : 1
         let w = max(Int(size.width * scale), 16), h = max(Int(size.height * scale), 16)
         func tex(_ w: Int, _ h: Int) -> MTLTexture {
             let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float, width: w, height: h, mipmapped: false)
@@ -116,8 +122,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     }
 
     func draw(in view: MTKView) {
-        guard let sceneTex, let bloomA, let bloomB, let drawable = view.currentDrawable,
-              let rpd = view.currentRenderPassDescriptor else { return }
+        guard let drawable = view.currentDrawable else { return }
         let t = DemoClock.now()
         if t >= demoLength + 1.0 && !ended {
             ended = true
@@ -125,8 +130,15 @@ final class Renderer: NSObject, MTKViewDelegate {
         }
         update(time: t)
         text.upload(to: textTex)
-
         let cmd = queue.makeCommandBuffer()!
+        render(to: drawable.texture, cmd)
+        cmd.present(drawable)
+        if let shotPath, t > startAt + 1.5 { saveShot(cmd, drawable.texture, shotPath) } else { cmd.commit() }
+    }
+
+    /// Scene → bright → blur H → blur V → post into `target`. Call update() and upload the text first.
+    func render(to target: MTLTexture, _ cmd: MTLCommandBuffer) {
+        guard let sceneTex, let bloomA, let bloomB else { return }
         func pass(_ target: MTLTexture, _ pipe: MTLRenderPipelineState, _ textures: [MTLTexture], _ extra: SIMD2<Float> = .zero) {
             let d = MTLRenderPassDescriptor()
             d.colorAttachments[0].texture = target
@@ -138,9 +150,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         pass(bloomA, brightPipeline, [sceneTex])
         pass(bloomB, blurPipeline, [bloomA], SIMD2<Float>(1, 0))
         pass(bloomA, blurPipeline, [bloomB], SIMD2<Float>(0, 1))
-        encode(cmd.makeRenderCommandEncoder(descriptor: rpd)!, postPipeline, [sceneTex, bloomA], .zero)
-        cmd.present(drawable)
-        if let shotPath, t > startAt + 1.5 { saveShot(cmd, drawable.texture, shotPath) } else { cmd.commit() }
+        pass(target, postPipeline, [sceneTex, bloomA])
     }
 
     private func saveShot(_ cmd: MTLCommandBuffer, _ src: MTLTexture, _ path: String) {
@@ -177,7 +187,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         enc.endEncoding()
     }
 
-    private func update(time t: Double) {
+    func update(time t: Double) {
         let sys = SystemInfo.shared.snapshot
         let beat = DemoClock.beat(at: t)
         let bar = beat / 4
@@ -224,6 +234,6 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         frames += 1
         if fpsTime == 0 { fpsTime = t }
-        if t - fpsTime > 5 { fputs("  \(frames / 5) fps, \(sys.processes.count) procs, load \(String(format: "%.2f", sys.loadAvg)), ports \(sys.machPorts)\n", stderr); frames = 0; fpsTime = t }
+        if t - fpsTime > 5 && DemoClock.override == nil { fputs("  \(frames / 5) fps, \(sys.processes.count) procs, load \(String(format: "%.2f", sys.loadAvg)), ports \(sys.machPorts)\n", stderr); frames = 0; fpsTime = t }
     }
 }
