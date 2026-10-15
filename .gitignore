@@ -1,0 +1,6 @@
+build/
+.build/
+xnu-demo
+*.metallib
+*.air
+.DS_Store
