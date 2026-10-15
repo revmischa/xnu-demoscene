@@ -295,7 +295,8 @@ float3 shadeXNU(float3 pos, float3 rd, float3 n, constant Uniforms& u) {
 
 float3 sceneXNU(float2 p, constant Uniforms& u) {
     float t = u.time;
-    float3 ro = float3(sin(t * 0.25) * 6.0, 1.0 + sin(t * 0.17) * 1.2, cos(t * 0.25) * 6.0);
+    float th = sin(t * 0.25) * 0.95;   // swing across the front only; from behind the letters read mirrored
+    float3 ro = float3(sin(th) * 6.5, 1.0 + sin(t * 0.17) * 1.2, cos(th) * 6.5);
     float3 ta = float3(0, 0, 0);
     float3 fwd = normalize(ta - ro), right = normalize(cross(float3(0, 1, 0), fwd)), up = cross(fwd, right);
     float3 rd = normalize(fwd * 1.7 + right * p.x + up * p.y);
