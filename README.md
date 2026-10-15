@@ -30,6 +30,7 @@ Dev flags:
 ./xnu-demo --windowed                 # 1280x720 window instead of fullscreen
 ./xnu-demo --windowed --at 72         # start the demo clock and sequencer at 72 s
 ./xnu-demo --windowed --at 72 --shot f.png   # save a frame 1.5 s later and quit
+./xnu-demo --windowed --press-esc     # posts an Esc key event after 2 s (proves the quit path)
 ./xnu-demo --render-audio track.wav   # render the soundtrack offline (no window)
 ./xnu-demo --render-video out.mov --size 1920x1080 --fps 60 --seconds 20   # offline video
 ```

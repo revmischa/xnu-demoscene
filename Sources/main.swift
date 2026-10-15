@@ -50,6 +50,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         SystemInfo.shared.start()
         Audio.shared.start()
+        if CommandLine.arguments.contains("--press-esc") {   // dev aid: prove the Esc path without a keyboard
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                let esc = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: self.window.windowNumber,
+                                           context: nil, characters: "\u{1B}", charactersIgnoringModifiers: "\u{1B}", isARepeat: false, keyCode: 53)!
+                NSApp.postEvent(esc, atStart: false)
+            }
+        }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) { NSCursor.hide() }
